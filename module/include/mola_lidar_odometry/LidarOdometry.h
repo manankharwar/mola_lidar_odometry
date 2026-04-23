@@ -292,6 +292,7 @@ public:
       bool camera_follows_vehicle = true;
       bool camera_rotates_with_vehicle = false;
       bool camera_orthographic = false;
+      bool show_gravity_align_vector = false;
 
       /** If not empty, an optional 3D model (.DAE, etc) to load for
              * visualizing the robot/vehicle pose */
@@ -799,7 +800,9 @@ private:
     std::map<mrpt::Clock::time_point, std::shared_ptr<const mrpt::obs::CObservationGPS>> last_gnss_;
 
     // Visualization:
-    mrpt::opengl::CSetOfObjects::Ptr glVehicleFrame, glPathGrp;
+    mrpt::opengl::CSetOfObjects::Ptr glVehicleFrame;
+    mrpt::opengl::CSetOfObjects::Ptr glPathGrp;
+    mrpt::opengl::CSetOfObjects::Ptr glGravityVectorGrp;
     mrpt::opengl::CSetOfLines::Ptr glEstimatedPath;
     int mapUpdateCnt = std::numeric_limits<int>::max();
 
@@ -945,6 +948,7 @@ private:
     const mrpt::maps::CPointsMap::Ptr & deskewedCloud);
   void updateVisualizationLocalMap(std::vector<std::function<void()>> & updateTasks);
   void updateVisualizationPath(std::vector<std::function<void()>> & updateTasks);
+  void updateVisualizationGravityVector(std::vector<std::function<void()>> & updateTasks);
   void updateVisualizationTextLabels();
 
 #if MOLA_VERSION_CHECK(2, 6, 0)

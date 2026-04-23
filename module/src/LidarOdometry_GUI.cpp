@@ -31,6 +31,7 @@
 #endif
 #include <mrpt/maps/CGenericPointsMap.h>
 #include <mrpt/obs/customizable_obs_viz.h>
+#include <mrpt/opengl/CArrow.h>
 #include <mrpt/opengl/CAssimpModel.h>
 #include <mrpt/opengl/CGridPlaneXY.h>
 #include <mrpt/opengl/COpenGLScene.h>
@@ -207,6 +208,13 @@ void LidarOdometry::internalBuildGUI()
       "Show log messages", params_.visualization.show_console_messages, [this](bool checked) {
         this->enqueue_request(
           [this, checked]() { params_.visualization.show_console_messages = checked; });
+      }});
+
+    tab.widgets.emplace_back(CheckBox{
+      "Show gravity-alignment vector", params_.visualization.show_gravity_align_vector,
+      [this](bool checked) {
+        this->enqueue_request(
+          [this, checked]() { params_.visualization.show_gravity_align_vector = checked; });
       }});
 
     desc.tabs.emplace_back(std::move(tab));
@@ -520,6 +528,10 @@ void LidarOdometry::updateVisualization(
   // ------------------------
   updateVisualizationPath(updateTasks);
 
+  // Estimated gravity vector:
+  // ---------------------------------
+  updateVisualizationGravityVector(updateTasks);
+
   // GUI follow vehicle:
   // ---------------------------
   if (params_.visualization.camera_follows_vehicle) {
@@ -784,34 +796,71 @@ void LidarOdometry::updateVisualizationLocalMap(std::vector<std::function<void()
 
 void LidarOdometry::updateVisualizationPath(std::vector<std::function<void()>> & updateTasks)
 {
-  if (params_.visualization.show_trajectory) {
-    const ProfilerEntry tle2(profiler_, "updateVisualization.update_traject");
-
-    if (!state_.glEstimatedPath) {
-      state_.glEstimatedPath = mrpt::opengl::CSetOfLines::Create();
-      const auto & rgba = params_.visualization.trajectory_rgba;
-      state_.glEstimatedPath->setColor(rgba.at(0), rgba.at(1), rgba.at(2), rgba.at(3));
-      state_.glPathGrp = mrpt::opengl::CSetOfObjects::Create();
-    }
-    // Update path viz:
-    for (size_t i = state_.glEstimatedPath->size(); i < state_.estimated_trajectory.size(); i++) {
-      auto it = state_.estimated_trajectory.begin();
-      std::advance(it, i);
-
-      const auto t = it->second.translation();
-
-      if (state_.glEstimatedPath->empty()) {
-        state_.glEstimatedPath->appendLine(t, t);
-      } else {
-        state_.glEstimatedPath->appendLineStrip(t);
-      }
-    }
-    state_.glPathGrp->clear();
-    state_.glPathGrp->insert(mrpt::opengl::CSetOfLines::Create(*state_.glEstimatedPath));
-
-    updateTasks.emplace_back(
-      [this]() { visualizer_->update_3d_object("liodom/path", state_.glPathGrp); });
+  if (!params_.visualization.show_trajectory) {
+    return;
   }
+
+  const ProfilerEntry tle2(profiler_, "updateVisualization.update_traject");
+
+  if (!state_.glEstimatedPath) {
+    state_.glEstimatedPath = mrpt::opengl::CSetOfLines::Create();
+    const auto & rgba = params_.visualization.trajectory_rgba;
+    state_.glEstimatedPath->setColor(rgba.at(0), rgba.at(1), rgba.at(2), rgba.at(3));
+    state_.glPathGrp = mrpt::opengl::CSetOfObjects::Create();
+  }
+  // Update path viz:
+  for (size_t i = state_.glEstimatedPath->size(); i < state_.estimated_trajectory.size(); i++) {
+    auto it = state_.estimated_trajectory.begin();
+    std::advance(it, i);
+
+    const auto t = it->second.translation();
+
+    if (state_.glEstimatedPath->empty()) {
+      state_.glEstimatedPath->appendLine(t, t);
+    } else {
+      state_.glEstimatedPath->appendLineStrip(t);
+    }
+  }
+  state_.glPathGrp->clear();
+  state_.glPathGrp->insert(mrpt::opengl::CSetOfLines::Create(*state_.glEstimatedPath));
+
+  updateTasks.emplace_back(
+    [this]() { visualizer_->update_3d_object("liodom/path", state_.glPathGrp); });
+}
+
+void LidarOdometry::updateVisualizationGravityVector(
+  std::vector<std::function<void()>> & updateTasks)
+{
+  if (!params_.visualization.show_gravity_align_vector) {
+    return;
+  }
+
+  const ProfilerEntry tle2(profiler_, "updateVisualization.update_gravity");
+
+  if (!state_.glGravityVectorGrp) {
+    state_.glGravityVectorGrp = mrpt::opengl::CSetOfObjects::Create();
+
+    auto glArrow = mrpt::opengl::CArrow::Create();
+    glArrow->setArrowEnds(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 3.0f);
+    state_.glGravityVectorGrp->insert(glArrow);
+  }
+
+  // Update gravity vector:
+
+  const auto gravityPR = state_.gravity_estimator.estimatedPitchRoll(
+    std::min(params_.imu_gravity_correction.averaging_samples, 3u),
+    params_.imu_gravity_correction.max_age_seconds);
+
+  if (gravityPR.has_value()) {
+    const auto [imu_pitch, imu_roll] = *gravityPR;
+
+    const auto arrowPose = mrpt::math::TPose3D(0, 0, 0, 0.0, imu_pitch, imu_roll);
+    state_.glGravityVectorGrp->setPose(arrowPose);
+    MRPT_LOG_INFO_STREAM(arrowPose);
+  }
+
+  updateTasks.emplace_back(
+    [this]() { visualizer_->update_3d_object("liodom/gravity_vector", state_.glPathGrp); });
 }
 
 void LidarOdometry::updateVisualizationTextLabels()
